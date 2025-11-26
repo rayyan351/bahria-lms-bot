@@ -1,4 +1,4 @@
-# main.py - Bahria LMS Bot for Replit
+# main.py - Bahria LMS Bot for Render
 import requests
 from bs4 import BeautifulSoup
 import sqlite3
@@ -8,8 +8,28 @@ from email.mime.text import MIMEText
 import ssl
 from datetime import datetime
 import os
+from flask import Flask
+import threading
 
 print("🚀 Bahria LMS Bot Starting...")
+
+# Initialize Flask app
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🚀 Bahria LMS Bot is Running!<br><br>📚 Monitoring your assignments 24/7<br>✅ Health: <a href='/health'>Check Health</a>"
+
+@app.route('/health')
+def health():
+    return "✅ Bot is healthy and running!"
+
+@app.route('/status')
+def status():
+    return f"🕒 Last check: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>🚀 Bot Status: ACTIVE"
+
+def run_web_server():
+    app.run(host='0.0.0.0', port=10000)
 
 class ReplitLMSBot:
     def __init__(self):
@@ -180,7 +200,7 @@ Detected at: {datetime.now()}
 Check your LMS: https://lms.bahria.edu.pk/Student/Assignments.php
 
 ---
-Auto LMS Bot (Running on Replit Cloud)
+Auto LMS Bot (Running on Render Cloud)
 """
 
                 msg = MIMEText(message)
@@ -244,9 +264,15 @@ def run_bot():
 
 # Main loop for continuous operation
 if __name__ == "__main__":
-    print("🚀 Bahria LMS Bot - Cloud Edition")
+    print("🚀 Bahria LMS Bot - Render Edition")
     print("💡 This bot will run continuously and check every 30 minutes")
+    print("🌐 Web server available on port 10000")
     print("⏰ Press Ctrl+C to stop\n")
+    
+    # Start web server in background thread
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+    print("✅ Flask web server started!")
 
     while True:
         try:
