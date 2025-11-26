@@ -29,7 +29,8 @@ def status():
     return f"🕒 Last check: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>🚀 Bot Status: ACTIVE"
 
 def run_web_server():
-    app.run(host='0.0.0.0', port=10000)
+    from waitress import serve
+    serve(app, host='0.0.0.0', port=10000)
 
 class ReplitLMSBot:
     def __init__(self):
@@ -269,11 +270,15 @@ if __name__ == "__main__":
     print("🌐 Web server available on port 10000")
     print("⏰ Press Ctrl+C to stop\n")
     
-    # Start web server in background thread
+    # Start web server in background thread (non-blocking)
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
     print("✅ Flask web server started!")
 
+    # Give the web server a moment to start
+    time.sleep(2)
+    
+    # Start the main bot loop
     while True:
         try:
             run_bot()
