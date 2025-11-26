@@ -28,9 +28,7 @@ def health():
 def status():
     return f"🕒 Last check: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>🚀 Bot Status: ACTIVE"
 
-def run_web_server():
-    from waitress import serve
-    serve(app, host='0.0.0.0', port=10000)
+
 
 class ReplitLMSBot:
     def __init__(self):
@@ -264,31 +262,29 @@ def run_bot():
     print("Bot execution completed!")
 
 # Main loop for continuous operation
-if __name__ == "__main__":
-    print("🚀 Bahria LMS Bot - Render Edition")
-    print("💡 This bot will run continuously and check every 30 minutes")
-    print("🌐 Web server available on port 10000")
-    print("⏰ Press Ctrl+C to stop\n")
-    
-    # Start web server in background thread (non-blocking)
-    web_thread = threading.Thread(target=run_web_server, daemon=True)
-    web_thread.start()
-    print("✅ Flask web server started!")
-
-    # Give the web server a moment to start
-    time.sleep(2)
-    
-    # Start the main bot loop
+def background_bot():
+    """Run bot in background thread"""
     while True:
         try:
             run_bot()
-            print(f"\n🔄 Next check in 30 minutes at {datetime.now()}")
+            print(f"🔄 Next check in 30 minutes at {datetime.now()}")
             time.sleep(1800)  # 30 minutes
-
-        except KeyboardInterrupt:
-            print("\n👋 Bot stopped by user")
-            break
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
             print("🔄 Retrying in 5 minutes...")
             time.sleep(300)  # 5 minutes
+
+# Main loop for continuous operation
+if __name__ == "__main__":
+    print("🚀 Bahria LMS Bot - Render Edition")
+    print("💡 This bot will run continuously and check every 30 minutes")
+    print("🌐 Web server available on port 10000")
+    
+    # Start background bot thread
+    bot_thread = threading.Thread(target=background_bot, daemon=True)
+    bot_thread.start()
+    print("✅ Background bot started!")
+    
+    # Start Flask app (this will block, which is fine for Render)
+    print("🚀 Starting web server...")
+    app.run(host='0.0.0.0', port=10000, debug=False)
