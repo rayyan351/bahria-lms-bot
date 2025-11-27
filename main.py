@@ -40,7 +40,78 @@ def debug():
     <a href="/status">Status</a>
     """
 
+@app.route('/force-check')
+def force_check():
+    """Manually trigger the bot to run right now"""
+    import threading
+    
+    def run_manual_check():
+        print("🔄 MANUAL CHECK TRIGGERED VIA WEB!")
+        run_bot()
+    
+    thread = threading.Thread(target=run_manual_check, daemon=True)
+    thread.start()
+    
+    return "🔄 Manual check triggered! Check logs in 2 minutes."
 
+@app.route('/debug-html')
+def debug_html():
+    """Check the actual HTML structure of one course"""
+    try:
+        bot = ReplitLMSBot()
+        bot.set_all_cookies()
+        
+        # Test with one course
+        course_code = 'MTM4OTA1'  # Applied Physics
+        form_data = {
+            'courseName': course_code,
+            'semesterName': 'MjAyNTM%3D'
+        }
+        
+        response = bot.session.post(
+            "https://lms.bahria.edu.pk/Student/Assignments.php", 
+            data=form_data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            # Return the raw HTML for inspection
+            return f"<pre>{response.text}</pre>"
+        else:
+            return f"Failed to load: HTTP {response.status_code}"
+            
+    except Exception as e:
+        return f"Error: {e}"
+
+@app.route('/check-auth')
+def check_auth():
+    """Check authentication status"""
+    try:
+        bot = ReplitLMSBot()
+        
+        # Test direct access to LMS
+        response = bot.session.get(
+            "https://lms.bahria.edu.pk/Student/Assignments.php",
+            allow_redirects=False,
+            timeout=10
+        )
+        
+        result = f"""
+        <h1>Authentication Check</h1>
+        <p>Status Code: {response.status_code}</p>
+        <p>Headers: {dict(response.headers)}</p>
+        """
+        
+        if response.status_code in [301, 302]:
+            redirect_to = response.headers.get('Location', 'Unknown')
+            result += f"<p style='color: red;'>🚨 REDIRECTED TO: {redirect_to}</p>"
+        elif response.status_code == 200:
+            result += "<p style='color: green;'>✅ Successfully accessed LMS</p>"
+            
+        return result
+        
+    except Exception as e:
+        return f"Error: {e}"
 
 class ReplitLMSBot:
     def __init__(self):
@@ -71,85 +142,274 @@ class ReplitLMSBot:
         print("✅ Database setup complete")
 
     def set_all_cookies(self):
-        # CMS Cookies
-        cms_cookies = {
-            'cms': 'chfs1bavsllroemz2ub3t1pm',
-            '_': '3ef27c5055b441e2b6024a583c33b127',
-            'SideBarVisible': '1'
-        }
-
-        # LMS Cookies
-        lms_cookies = {
-            'PHPSESSID': '9a39sic1j1iurvtmfug5u3nqat'
-        }
-
-        for name, value in cms_cookies.items():
-            self.session.cookies.set(name, value, domain='.bahria.edu.pk', path='/')
-
-        for name, value in lms_cookies.items():
-            self.session.cookies.set(name, value, domain='lms.bahria.edu.pk', path='/')
-
-        print("✅ All cookies set successfully!")
+        print("🔄 Establishing authenticated session...")
+        
+        # Clear all cookies first
+        self.session.cookies.clear()
+        
+        try:
+            # Step 1: First, let's see what happens when we try to access LMS
+            print("   🔍 Testing LMS access...")
+            initial_response = self.session.get(
+                "https://lms.bahria.edu.pk/Student/Assignments.php",
+                allow_redirects=False,  # Don't follow redirects automatically
+                timeout=10
+            )
+            
+            print(f"   📡 Initial LMS response: {initial_response.status_code}")
+            
+            # If we get redirected, follow the redirect chain manually
+            if initial_response.status_code in [301, 302]:
+                redirect_url = initial_response.headers.get('Location', '')
+                print(f"   🔀 Redirected to: {redirect_url}")
+                
+                # Follow the redirect
+                if redirect_url:
+                    print("   🔄 Following redirect...")
+                    redirect_response = self.session.get(
+                        redirect_url,
+                        allow_redirects=True,  # Follow all redirects
+                        timeout=10
+                    )
+                    print(f"   ✅ Final destination: {redirect_response.url}")
+                    print(f"   📄 Final status: {redirect_response.status_code}")
+            
+            # Step 2: Now try to manually set the PHPSESSID that we know works
+            print("   🔑 Setting manual PHPSESSID...")
+            manual_cookies = {
+                'PHPSESSID': '9a39sic1j1iurvtmfug5u3nqat'
+            }
+            
+            for name, value in manual_cookies.items():
+                self.session.cookies.set(name, value, domain='lms.bahria.edu.pk', path='/')
+            
+            # Step 3: Test if our manual cookies work
+            print("   🧪 Testing manual cookies...")
+            test_response = self.session.get(
+                "https://lms.bahria.edu.pk/Student/Assignments.php",
+                allow_redirects=False,
+                timeout=10
+            )
+            
+            print(f"   🧪 Manual cookie test: {test_response.status_code}")
+            
+            if test_response.status_code == 200:
+                print("   ✅ Manual cookies WORKING!")
+                # Check if we have assignments page
+                if "Assignments" in test_response.text:
+                    print("   🎯 Successfully accessed Assignments page!")
+                else:
+                    print("   ⚠️ On LMS but not assignments page")
+            else:
+                print(f"   ❌ Manual cookies failed: {test_response.status_code}")
+                
+            # Print all current cookies for debugging
+            print("   🍪 Current cookies:")
+            for cookie in self.session.cookies:
+                print(f"      {cookie.name}: {cookie.value} (domain: {cookie.domain})")
+                
+        except Exception as e:
+            print(f"   ❌ Session setup failed: {e}")
+            import traceback
+            traceback.print_exc()
 
     def check_course_assignments(self, course_code, course_name):
+       try:
+        print(f"📖 Checking {course_name}...")
+        
+        # The LMS uses URL parameters, not POST data!
+        # Format: Assignments.php?s=SEMESTER_CODE&oc=COURSE_CODE
+        url = f"{self.base_lms_url}/Student/Assignments.php?s=MjAyNTM%3D&oc={course_code}"
+        
+        print(f"   🔗 Using URL: {url}")
+        
+        response = self.session.get(
+            url,
+            timeout=30,
+            headers={
+                'Referer': f'{self.base_lms_url}/Student/Assignments.php'
+            }
+        )
+
+        print(f"   📡 GET Status: {response.status_code}")
+        
+        # If we got a successful response, parse it
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            page_title = soup.find('title')
+            
+            if page_title:
+                title_text = page_title.get_text(strip=True)
+                print(f"   📄 Page title: {title_text}")
+
+            # Look for assignments table
+            table = soup.find('table', {'class': 'table'})
+            
+            if table:
+                assignments = []
+                rows = table.find_all('tr')[1:]  # Skip header row
+
+                for i, row in enumerate(rows):
+                    cols = row.find_all('td')
+                    
+                    # Check if this is the "no assignments" message row
+                    if len(cols) == 1:
+                        message = cols[0].get_text(strip=True)
+                        if "please select a course" in message.lower() or "no assignments" in message.lower():
+                            print(f"   ℹ️ No assignments available for {course_name}")
+                            return []
+                    
+                    # Check if this is an actual assignment row (should have 7-8 columns)
+                    if len(cols) >= 7:
+                        assignment_number = cols[0].get_text(strip=True)
+                        assignment_title = cols[1].get_text(strip=True)
+
+                        # Skip empty rows and instructional rows
+                        if not assignment_number or not assignment_title:
+                            continue
+                        if "please select" in assignment_title.lower():
+                            continue
+                        if "select a course" in assignment_title.lower():
+                            continue
+
+                        # Debug: print what we found
+                        print(f"   🔍 Found assignment: {assignment_number} - {assignment_title}")
+                        
+                        assignment_data = {
+                            'course_code': course_code,
+                            'course_name': course_name,
+                            'assignment_number': assignment_number,
+                            'assignment_title': assignment_title,
+                            'assignment_file_available': "Assignment Not available" not in cols[2].get_text(),
+                            'marks_available': "Not marked yet" not in cols[4].get_text(),
+                            'marks_text': cols[4].get_text(strip=True),
+                            'returned_submission_available': "---" not in cols[5].get_text(),
+                            'deadline': cols[6].get_text(strip=True)
+                        }
+                        assignments.append(assignment_data)
+
+                print(f"   ✅ Found {len(assignments)} assignments for {course_name}")
+                return assignments
+            else:
+                print(f"   ❌ No assignments table found")
+                return []
+        else:
+            print(f"   ❌ Request failed with status: {response.status_code}")
+            return []
+
+       except Exception as e:
+         print(f"   ❌ Error: {e}")
+         import traceback
+         traceback.print_exc()
+         return []
+
+    def debug_course_page(self, course_code, course_name):
+        """Debug method to see actual page content"""
         try:
             form_data = {
                 'courseName': course_code,
-                'semesterName': 'MjAyNTM%3D'  # Fall-2025
+                'semesterName': 'MjAyNTM%3D'
             }
 
-            print(f"📖 Checking {course_name}...")
+            print(f"🐛 DEBUGGING {course_name}...")
+            
             response = self.session.post(
                 f"{self.base_lms_url}/Student/Assignments.php", 
                 data=form_data,
                 timeout=30
             )
 
-            print(f"   HTTP Status: {response.status_code}")
-
             if response.status_code == 200:
                 soup = BeautifulSoup(response.content, 'html.parser')
-                table = soup.find('table')
-
-                if table:
-                    assignments = []
-                    rows = table.find_all('tr')[1:]  # Skip header row
-
-                    for i, row in enumerate(rows):
-                        cols = row.find_all('td')
-                        if len(cols) >= 7:
-                            assignment_number = cols[0].get_text(strip=True)
-                            assignment_title = cols[1].get_text(strip=True)
-
-                            # Skip empty rows
-                            if not assignment_number and not assignment_title:
-                                continue
-
-                            assignment_data = {
-                                'course_code': course_code,
-                                'course_name': course_name,
-                                'assignment_number': assignment_number or f"Row_{i+1}",
-                                'assignment_title': assignment_title,
-                                'assignment_file_available': "Assignment Not available" not in cols[2].get_text(),
-                                'marks_available': "Not marked yet" not in cols[4].get_text(),
-                                'marks_text': cols[4].get_text(strip=True),
-                                'returned_submission_available': "---" not in cols[5].get_text(),
-                                'deadline': cols[6].get_text(strip=True)
-                            }
-                            assignments.append(assignment_data)
-
-                    print(f"   ✅ Found {len(assignments)} assignments")
-                    return assignments
-                else:
-                    print(f"   ❌ No assignments table found")
-                    return []
-            else:
-                print(f"   ❌ Failed to load page")
-                return []
-
+                
+                # Save the actual HTML to a file for inspection
+                filename = f"debug_{course_name}.html"
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(response.text)
+                print(f"   💾 Saved HTML to: {filename}")
+                
+                # Look for ANY tables on the page
+                tables = soup.find_all('table')
+                print(f"   🔍 Found {len(tables)} total tables on page")
+                
+                for i, table in enumerate(tables):
+                    print(f"   📊 Table {i+1}:")
+                    print(f"      Classes: {table.get('class', 'No classes')}")
+                    print(f"      ID: {table.get('id', 'No ID')}")
+                    
+                    # Count rows in this table
+                    rows = table.find_all('tr')
+                    print(f"      Rows: {len(rows)}")
+                    
+                    if len(rows) > 0:
+                        # Show first row content
+                        first_row = rows[0]
+                        cols = first_row.find_all(['td', 'th'])
+                        print(f"      Columns in first row: {len(cols)}")
+                        for j, col in enumerate(cols):
+                            print(f"        Col {j}: '{col.get_text(strip=True)}'")
+                
+                # Also check for any assignment-related text
+                if "assignment" in response.text.lower():
+                    print("   📋 Found 'assignment' text on page")
+                if "no assignment" in response.text.lower():
+                    print("   ❌ Found 'no assignment' text on page")
+                if "not available" in response.text.lower():
+                    print("   ⚠️ Found 'not available' text on page")
+                    
+            return True
+            
         except Exception as e:
-            print(f"   ❌ Error: {e}")
-            return []
+            print(f"   ❌ Debug failed: {e}")
+            return False
+        
+    def test_post_request(self, course_code, course_name):
+     """Test if URL parameters work"""
+     print(f"🧪 TESTING URL PARAMS for {course_name}...")
+    
+    # Use URL parameters instead of POST
+     url = f"{self.base_lms_url}/Student/Assignments.php?s=MjAyNTM%3D&oc={course_code}"
+    
+     response = self.session.get(url, timeout=30)
+    
+    # Save the response to see what we're actually getting
+     filename = f"test_url_{course_name}.html"
+     with open(filename, "w", encoding="utf-8") as f:
+        f.write(response.text)
+     print(f"   💾 Saved URL response to: {filename}")
+    
+    # Check if the course name appears in the dropdown as selected
+     soup = BeautifulSoup(response.content, 'html.parser')
+     select_element = soup.find('select', {'id': 'courseId'})
+     if select_element:
+        selected_option = select_element.find('option', selected=True)
+        if selected_option:
+            selected_text = selected_option.get_text(strip=True)
+            print(f"   🔍 Selected course in dropdown: {selected_text}")
+            
+            # Also check the table for actual assignments
+            table = soup.find('table', {'class': 'table'})
+            if table:
+                rows = table.find_all('tr')
+                print(f"   📊 Table rows found: {len(rows)}")
+                
+                # Look for assignment rows (skip header and message rows)
+                assignment_rows = []
+                for row in rows[1:]:  # Skip header
+                    cols = row.find_all('td')
+                    if len(cols) >= 7:  # Actual assignment row
+                        assignment_rows.append(row)
+                
+                print(f"   📋 Actual assignment rows: {len(assignment_rows)}")
+                
+                if assignment_rows:
+                    for i, row in enumerate(assignment_rows[:2]):  # Show first 2
+                        cols = row.find_all('td')
+                        print(f"     Assignment {i+1}: {cols[0].get_text(strip=True)} - {cols[1].get_text(strip=True)}")
+        else:
+            print("   ⚠️ No course selected in dropdown")
+    
+     return response.status_code == 200 
 
     def detect_changes(self, assignments):
         changes = []
@@ -254,6 +514,10 @@ def run_bot():
         bot = ReplitLMSBot()
         bot.set_all_cookies()
 
+        # 🐛 TEMPORARY DEBUG - Check one course HTML structure
+        print("🧪 TESTING URL PARAMETERS...")
+        bot.test_post_request('MTM4OTA1', 'Applied Physics')
+
         all_changes = []
 
         # Check each course
@@ -280,23 +544,27 @@ def run_bot():
         print(f"💥 FATAL ERROR in run_bot: {e}")
         raise  # Re-raise to be caught by background_bot
 
-
-# Main loop for continuous operation
 def background_bot():
     """Run bot in background thread with proper error handling"""
+    print("🎯 Background bot thread STARTED!")
     # Initial delay to let Flask start completely
+    print("⏳ Waiting 10 seconds for Flask to stabilize...")
     time.sleep(10)
     
+    check_count = 0
     while True:
         try:
-            print(f"🔄 Starting bot cycle at {datetime.now()}")
+            check_count += 1
+            print(f"🔄 [{check_count}] Starting bot cycle at {datetime.now()}")
             run_bot()
-            print(f"✅ Bot cycle completed at {datetime.now()}")
+            print(f"✅ [{check_count}] Bot cycle completed at {datetime.now()}")
             print(f"⏰ Next check in 30 minutes...")
             time.sleep(1800)  # 30 minutes
             
         except Exception as e:
-            print(f"❌ CRITICAL ERROR in bot: {e}")
+            print(f"❌ [{check_count}] CRITICAL ERROR in bot: {e}")
+            import traceback
+            traceback.print_exc()  # This will show the full error stack
             print("🔄 Restarting bot in 2 minutes...")
             time.sleep(120)  # 2 minutes before retry
 
