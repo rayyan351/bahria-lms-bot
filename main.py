@@ -6,7 +6,7 @@ import time
 import smtplib
 from email.mime.text import MIMEText
 import ssl
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 from flask import Flask
 import threading
@@ -27,6 +27,18 @@ def health():
 @app.route('/status')
 def status():
     return f"🕒 Last check: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>🚀 Bot Status: ACTIVE"
+
+@app.route('/debug')
+def debug():
+    return f"""
+    <h1>Bot Debug Info</h1>
+    <p>Current Time: {datetime.now()}</p>
+    <p>Last Check Should Have Been: ~{datetime.now().strftime('%H:%M')}</p>
+    <p>Next Check Should Be: ~{(datetime.now() + timedelta(minutes=30)).strftime('%H:%M')}</p>
+    <p>Status: 🟢 Running</p>
+    <a href="/health">Health Check</a> | 
+    <a href="/status">Status</a>
+    """
 
 
 
@@ -219,60 +231,74 @@ Auto LMS Bot (Running on Render Cloud)
             print(f"❌ Email error: {e}")
 
 def run_bot():
-    print("=" * 60)
-    print(f"🕒 Checking LMS at {datetime.now()}")
-    print("=" * 60)
+    try:
+        print("=" * 60)
+        print(f"🕒 Checking LMS at {datetime.now()}")
+        print("=" * 60)
 
-    # Course list
-    COURSES = {
-        'MTM4OTA1': 'Applied Physics',
-        'MTM4OTA2': 'Applied Physics Lab', 
-        'MTM4OTA3': 'Computer Programming',
-        'MTM4OTA4': 'Computer Programming Lab',
-        'MTM4OTA5': 'Discrete Mathematics',
-        'MTM4OTEw': 'ICT',
-        'MTM4OTEx': 'ICT Lab',
-        'MTM4OTEy': 'Islamic Studies',
-        'MTM4OTEz': 'Professional Practices & Ethics',
-        'MTM4OTE0': 'Tajweed'
-    }
+        # Course list
+        COURSES = {
+            'MTM4OTA1': 'Applied Physics',
+            'MTM4OTA2': 'Applied Physics Lab', 
+            'MTM4OTA3': 'Computer Programming',
+            'MTM4OTA4': 'Computer Programming Lab',
+            'MTM4OTA5': 'Discrete Mathematics',
+            'MTM4OTEw': 'ICT',
+            'MTM4OTEx': 'ICT Lab',
+            'MTM4OTEy': 'Islamic Studies',
+            'MTM4OTEz': 'Professional Practices & Ethics',
+            'MTM4OTE0': 'Tajweed'
+        }
 
-    # Initialize and run bot
-    bot = ReplitLMSBot()
-    bot.set_all_cookies()
+        # Initialize and run bot
+        bot = ReplitLMSBot()
+        bot.set_all_cookies()
 
-    all_changes = []
+        all_changes = []
 
-    # Check each course
-    for course_code, course_name in COURSES.items():
-        assignments = bot.check_course_assignments(course_code, course_name)
-        changes = bot.detect_changes(assignments)
-        all_changes.extend(changes)
-        time.sleep(2)  # Be nice to the server
+        # Check each course
+        for course_code, course_name in COURSES.items():
+            print(f"🔍 Processing {course_name}...")
+            assignments = bot.check_course_assignments(course_code, course_name)
+            changes = bot.detect_changes(assignments)
+            all_changes.extend(changes)
+            print(f"✅ Completed {course_name}")
+            time.sleep(2)  # Be nice to the server
 
-    # Send notifications if changes found
-    if all_changes:
-        print(f"\n🎉 TOTAL: {len(all_changes)} new assignments found!")
-        bot.send_email(all_changes)
-        print("✅ Notifications sent!")
-    else:
-        print("\n✅ No new assignments found")
+        # Send notifications if changes found
+        if all_changes:
+            print(f"\n🎉 TOTAL: {len(all_changes)} new assignments found!")
+            bot.send_email(all_changes)
+            print("✅ Notifications sent!")
+        else:
+            print("\n✅ No new assignments found")
 
-    bot.conn.close()
-    print("Bot execution completed!")
+        bot.conn.close()
+        print("🏁 Bot execution completed successfully!")
+        
+    except Exception as e:
+        print(f"💥 FATAL ERROR in run_bot: {e}")
+        raise  # Re-raise to be caught by background_bot
+
 
 # Main loop for continuous operation
 def background_bot():
-    """Run bot in background thread"""
+    """Run bot in background thread with proper error handling"""
+    # Initial delay to let Flask start completely
+    time.sleep(10)
+    
     while True:
         try:
+            print(f"🔄 Starting bot cycle at {datetime.now()}")
             run_bot()
-            print(f"🔄 Next check in 30 minutes at {datetime.now()}")
+            print(f"✅ Bot cycle completed at {datetime.now()}")
+            print(f"⏰ Next check in 30 minutes...")
             time.sleep(1800)  # 30 minutes
+            
         except Exception as e:
-            print(f"❌ Unexpected error: {e}")
-            print("🔄 Retrying in 5 minutes...")
-            time.sleep(300)  # 5 minutes
+            print(f"❌ CRITICAL ERROR in bot: {e}")
+            print("🔄 Restarting bot in 2 minutes...")
+            time.sleep(120)  # 2 minutes before retry
 
 # Main loop for continuous operation
 if __name__ == "__main__":
