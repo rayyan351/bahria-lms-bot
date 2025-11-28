@@ -11,6 +11,7 @@ import os
 from flask import Flask
 import threading
 
+
 print("🚀 Bahria LMS Bot Starting...")
 
 # Initialize Flask app
@@ -112,6 +113,38 @@ def check_auth():
         
     except Exception as e:
         return f"Error: {e}"
+    
+@app.route('/test-cookie')
+def test_cookie():
+    """Test if the manual cookie still works"""
+    try:
+        bot = ReplitLMSBot()
+        
+        # Use the simple manual cookie approach
+        bot.session.cookies.clear()
+        bot.session.cookies.set('PHPSESSID', '9a39sic1j1iurvtmfug5u3nqat', domain='lms.bahria.edu.pk', path='/')
+        
+        response = bot.session.get(
+            "https://lms.bahria.edu.pk/Student/Assignments.php?s=MjAyNTM%3D&oc=MTM4OTA1",
+            allow_redirects=False,
+            timeout=10
+        )
+        
+        result = f"""
+        <h1>Cookie Test</h1>
+        <p>Status: {response.status_code}</p>
+        <p>Redirect: {response.headers.get('Location', 'No redirect')}</p>
+        """
+        
+        if response.status_code == 200:
+            result += "<p style='color: green;'>✅ Manual cookie STILL WORKS!</p>"
+        else:
+            result += "<p style='color: red;'>❌ Manual cookie FAILED!</p>"
+            
+        return result
+        
+    except Exception as e:
+        return f"Error: {e}"    
 
 class ReplitLMSBot:
     def __init__(self):
@@ -141,84 +174,59 @@ class ReplitLMSBot:
         self.conn.commit()
         print("✅ Database setup complete")
 
+      
     def set_all_cookies(self):
-        print("🔄 Establishing authenticated session...")
+     print("🔄 Setting up LMS session with manual cookie...")
+    
+    # Clear all cookies first
+     self.session.cookies.clear()
+    
+     try:
+        # ALWAYS use the working manual PHPSESSID (skip CMS login)
+        print("   🔑 Setting manual PHPSESSID...")
+        manual_cookies = {
+            'PHPSESSID': '9a39sic1j1iurvtmfug5u3nqat'
+        }
         
-        # Clear all cookies first
-        self.session.cookies.clear()
+        for name, value in manual_cookies.items():
+            self.session.cookies.set(name, value, domain='lms.bahria.edu.pk', path='/')
         
-        try:
-            # Step 1: First, let's see what happens when we try to access LMS
-            print("   🔍 Testing LMS access...")
-            initial_response = self.session.get(
-                "https://lms.bahria.edu.pk/Student/Assignments.php",
-                allow_redirects=False,  # Don't follow redirects automatically
-                timeout=10
-            )
-            
-            print(f"   📡 Initial LMS response: {initial_response.status_code}")
-            
-            # If we get redirected, follow the redirect chain manually
-            if initial_response.status_code in [301, 302]:
-                redirect_url = initial_response.headers.get('Location', '')
-                print(f"   🔀 Redirected to: {redirect_url}")
-                
-                # Follow the redirect
-                if redirect_url:
-                    print("   🔄 Following redirect...")
-                    redirect_response = self.session.get(
-                        redirect_url,
-                        allow_redirects=True,  # Follow all redirects
-                        timeout=10
-                    )
-                    print(f"   ✅ Final destination: {redirect_response.url}")
-                    print(f"   📄 Final status: {redirect_response.status_code}")
-            
-            # Step 2: Now try to manually set the PHPSESSID that we know works
-            print("   🔑 Setting manual PHPSESSID...")
-            manual_cookies = {
-                'PHPSESSID': '9a39sic1j1iurvtmfug5u3nqat'
-            }
-            
-            for name, value in manual_cookies.items():
-                self.session.cookies.set(name, value, domain='lms.bahria.edu.pk', path='/')
-            
-            # Step 3: Test if our manual cookies work
-            print("   🧪 Testing manual cookies...")
-            test_response = self.session.get(
-                "https://lms.bahria.edu.pk/Student/Assignments.php",
-                allow_redirects=False,
-                timeout=10
-            )
-            
-            print(f"   🧪 Manual cookie test: {test_response.status_code}")
-            
-            if test_response.status_code == 200:
-                print("   ✅ Manual cookies WORKING!")
-                # Check if we have assignments page
-                if "Assignments" in test_response.text:
-                    print("   🎯 Successfully accessed Assignments page!")
-                else:
-                    print("   ⚠️ On LMS but not assignments page")
+        # Test if cookies work
+        print("   🧪 Testing cookies...")
+        test_response = self.session.get(
+            "https://lms.bahria.edu.pk/Student/Assignments.php",
+            allow_redirects=False,
+            timeout=10
+        )
+        
+        print(f"   🧪 Cookie test: {test_response.status_code}")
+        
+        if test_response.status_code == 200:
+            print("   ✅ Manual cookies WORKING!")
+            if "Assignments" in test_response.text:
+                print("   🎯 Successfully accessed Assignments page!")
             else:
-                print(f"   ❌ Manual cookies failed: {test_response.status_code}")
+                print("   ⚠️ On LMS but not assignments page")
+        else:
+            print(f"   ❌ Manual cookies failed: {test_response.status_code}")
+            if test_response.status_code in [301, 302]:
+                redirect_to = test_response.headers.get('Location', '')
+                print(f"   🔀 Redirected to: {redirect_to}")
                 
-            # Print all current cookies for debugging
-            print("   🍪 Current cookies:")
-            for cookie in self.session.cookies:
-                print(f"      {cookie.name}: {cookie.value} (domain: {cookie.domain})")
+        # Print cookies for debugging
+        print("   🍪 Current cookies:")
+        for cookie in self.session.cookies:
+            print(f"      {cookie.name}: {cookie.value} (domain: {cookie.domain})")
                 
-        except Exception as e:
-            print(f"   ❌ Session setup failed: {e}")
-            import traceback
-            traceback.print_exc()
+     except Exception as e:
+        print(f"   ❌ Session setup failed: {e}")
+        import traceback
+        traceback.print_exc()
 
     def check_course_assignments(self, course_code, course_name):
-       try:
+     try:
         print(f"📖 Checking {course_name}...")
         
-        # The LMS uses URL parameters, not POST data!
-        # Format: Assignments.php?s=SEMESTER_CODE&oc=COURSE_CODE
         url = f"{self.base_lms_url}/Student/Assignments.php?s=MjAyNTM%3D&oc={course_code}"
         
         print(f"   🔗 Using URL: {url}")
@@ -228,10 +236,19 @@ class ReplitLMSBot:
             timeout=30,
             headers={
                 'Referer': f'{self.base_lms_url}/Student/Assignments.php'
-            }
+            },
+            allow_redirects=False  # Don't follow redirects automatically
         )
 
         print(f"   📡 GET Status: {response.status_code}")
+        
+        # Check if we got redirected to CMS
+        if response.status_code in [301, 302]:
+            redirect_location = response.headers.get('Location', '')
+            print(f"   🔀 REDIRECTED to: {redirect_location}")
+            if 'cms.bahria.edu.pk' in redirect_location:
+                print("   🚨 Redirected to CMS - authentication issue!")
+            return []
         
         # If we got a successful response, parse it
         if response.status_code == 200:
@@ -241,11 +258,17 @@ class ReplitLMSBot:
             if page_title:
                 title_text = page_title.get_text(strip=True)
                 print(f"   📄 Page title: {title_text}")
+                
+                # Check if we're on CMS instead of LMS
+                if "CMS" in title_text:
+                    print("   🚨 On CMS page instead of LMS - authentication failed!")
+                    return []
 
-            # Look for assignments table
+            # Rest of your existing parsing logic...
             table = soup.find('table', {'class': 'table'})
             
             if table:
+                # ... your existing assignment parsing code
                 assignments = []
                 rows = table.find_all('tr')[1:]  # Skip header row
 
@@ -259,12 +282,10 @@ class ReplitLMSBot:
                             print(f"   ℹ️ No assignments available for {course_name}")
                             return []
                     
-                    # Check if this is an actual assignment row (should have 7-8 columns)
                     if len(cols) >= 7:
                         assignment_number = cols[0].get_text(strip=True)
                         assignment_title = cols[1].get_text(strip=True)
 
-                        # Skip empty rows and instructional rows
                         if not assignment_number or not assignment_title:
                             continue
                         if "please select" in assignment_title.lower():
@@ -272,7 +293,6 @@ class ReplitLMSBot:
                         if "select a course" in assignment_title.lower():
                             continue
 
-                        # Debug: print what we found
                         print(f"   🔍 Found assignment: {assignment_number} - {assignment_title}")
                         
                         assignment_data = {
@@ -297,12 +317,12 @@ class ReplitLMSBot:
             print(f"   ❌ Request failed with status: {response.status_code}")
             return []
 
-       except Exception as e:
-         print(f"   ❌ Error: {e}")
-         import traceback
-         traceback.print_exc()
-         return []
-
+     except Exception as e:
+        print(f"   ❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+    
     def debug_course_page(self, course_code, course_name):
         """Debug method to see actual page content"""
         try:
@@ -513,10 +533,6 @@ def run_bot():
         # Initialize and run bot
         bot = ReplitLMSBot()
         bot.set_all_cookies()
-
-        # 🐛 TEMPORARY DEBUG - Check one course HTML structure
-        print("🧪 TESTING URL PARAMETERS...")
-        bot.test_post_request('MTM4OTA1', 'Applied Physics')
 
         all_changes = []
 
